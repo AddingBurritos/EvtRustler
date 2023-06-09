@@ -10,61 +10,70 @@ use std::ffi::OsString;
 use std::os::windows::ffi::OsStrExt;
 use std::hash::{Hash, Hasher};
 use std::fmt;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug)]
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EvtProvider {
     name: String,
+    #[serde(skip)]
     handle: EVT_HANDLE,
     channels: HashSet<String>,
-    levels: HashMap<u32, String>,
-    tasks: HashMap<u32, String>,
-    opcodes: HashMap<u32, String>,
-    keywords: HashMap<u32, String>,
+    levels: HashMap<u64, HashMap<String, String>>,
+    tasks: HashMap<u64, HashMap<String, String>>,
+    opcodes: HashMap<u64, HashMap<String, String>>,
+    keywords: HashMap<u64, HashMap<String, String>>,
 }
 impl EvtProvider {
     pub fn new(name: &str) -> std::result::Result<Self, Error> {
         let provider_name = name.to_string();
-        println!("{}:", &provider_name);
+        //println!("{}:", &provider_name);
+        if provider_name.contains("CardSpace 4.0.0.0") {
+            println!("hi");
+        };
         let h_provider = match Self::open_handle(name) {
             Ok(handle) => handle,
             Err(e) => return Err(e)
         };
-        println!("  Channels:");
+        //println!("  Channels:");
         let provider_channels = match Self::enumerate_channels(name, &h_provider) {
             Ok(pcps) => pcps,
-            Err(e) => return Err(e)
+            Err(e) => {
+                println!("Couldn't get channels for provider {}: {}", &provider_name, e.message());
+                HashSet::new()
+            }
         };
 
-        println!("  Levels:");
+        //println!("  Levels:");
         let levels = match Self::get_metadata_property(&h_provider, EvtPublisherMetadataLevels) {
             Ok(results) => results,
             Err(e) => {
                 println!("Couldn't get levels for provider {}: {}", &provider_name, e.message());
-                return Err(e);
+                HashMap::new()
             }
         };
-        println!("  Tasks:");
+        //println!("  Tasks:");
         let tasks = match Self::get_metadata_property(&h_provider, EvtPublisherMetadataTasks) {
             Ok(results) => results,
             Err(e) => {
                 println!("Couldn't get tasks for provider {}: {}", &provider_name, e.message());
-                return Err(e);
+                HashMap::new()
             }
         };
-        println!("  Opcodes:");
+        //println!("  Opcodes:");
         let opcodes = match Self::get_metadata_property(&h_provider, EvtPublisherMetadataOpcodes) {
             Ok(results) => results,
             Err(e) => {
                 println!("Couldn't get opcodes for provider {}: {}", &provider_name, e.message());
-                return Err(e);
+                HashMap::new()
             }
         };
-        println!("  Keywords:");
+        //println!("  Keywords:");
         let keywords = match Self::get_metadata_property(&h_provider, EvtPublisherMetadataKeywords) {
             Ok(results) => results,
             Err(e) => {
                 println!("Couldn't get keywords for provider {}: {}", &provider_name, e.message());
-                return Err(e);
+                HashMap::new()
             }
         };
         Ok(Self {
@@ -93,8 +102,10 @@ impl EvtProvider {
             Err(e) => return Err(e)  // This is fucking stupid. Handle your errors consistently. Caller/Callee
         };
     }
-
-    fn get_metadata_property(h_provider: &EVT_HANDLE, property_flag: EVT_PUBLISHER_METADATA_PROPERTY_ID) -> Result<HashMap<u32, String>> {
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string(&self)
+    }
+    fn get_metadata_property(h_provider: &EVT_HANDLE, property_flag: EVT_PUBLISHER_METADATA_PROPERTY_ID) -> Result<HashMap<u64, HashMap<String, String>>> {
         let property_array_handle = match evt_get_publisher_metadata_property(h_provider, property_flag) {
             Ok(handle) => handle,
             Err(e) => {
@@ -112,73 +123,74 @@ impl EvtProvider {
             }
         };
 
-        let mut property_results: HashMap<u32, String> = HashMap::new();
+        let mut property_results: HashMap<u64, HashMap<String, String>> = HashMap::new();
 
         for n in 0..property_array_size {
-            println!("Getting item number {}", n);
-            //let property_message = flag_map.get(&property_flag.0).unwrap();
+            let mut inner_map: HashMap<String, String> = HashMap::new();
             match property_flag {
                 EvtPublisherMetadataLevels => {
                     match get_property(&property_array_handle, n, EvtPublisherMetadataLevelName) {
                         Ok(managed_var) => {
-                            println!("Level Name is: {}", managed_var.get_string().unwrap())
+                            //println!("Level Name is: {}", managed_var.get_string().unwrap());
+                            match inner_map.insert("Level Name".to_string(), managed_var.get_string().unwrap()) {
+                                Some(thing) => println!("Level name '{}' replaced by '{}'", thing, managed_var.get_string().unwrap()),
+                                None => {}
+                            };
                         },
                         Err(e) => {
                             println!("Couldn't get level name: {}", e.message());
-                            continue;
-                        }
-                    }
-                    match get_property(&property_array_handle, n, EvtPublisherMetadataLevelValue) {
-                        Ok(managed_var) => {
-                            println!("Level Value is: {}", managed_var.get_u32())
-                        },
-                        Err(e) => {
-                            println!("Couldn't get level value: {}", e.message());
-                            continue;
                         }
                     }
                     match get_property(&property_array_handle, n, EvtPublisherMetadataLevelMessageID) {
                         Ok(managed_var) => {
-                            if managed_var.get_int32() == -1 {
-                                println!("No level message");
-                                continue;
-                            }
-                            match Self::format_event_message(
+                            if managed_var.get_int32() != -1 {
+                                match Self::format_event_message(
                                 &EVT_HANDLE(0), 
                                 h_provider, 
                                 EvtFormatMessageId, 
                                 Some(&managed_var.get_u32())
-                            ) {
-                                Ok(m) => {
-                                    println!("Level message is: {}", m);
-                                },
-                                Err(e) => {
-                                    println!("Failed to retrieve message: {}", e.message());
-                                    continue;
-                                }
-                            };
+                                ) {
+                                    Ok(m) => {
+                                        match inner_map.insert("Level Message".to_string(), m) {
+                                            Some(thing) => println!("Level Message '{}' replaced by '{}'", thing, managed_var.get_string().unwrap()),
+                                            None => {}
+                                        };
+                                    },
+                                    Err(e) => {
+                                        println!("Failed to retrieve message: {}", e.message());
+                                    }
+                                };
+                            }
+                            
                         },
                         Err(e) => {
                             println!("Couldn't get level message: {}", e.message())
+                        }
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataLevelValue) {
+                        Ok(managed_var) => {
+                            //println!("Level Value is: {}", managed_var.get_u32());
+                            match property_results.insert(managed_var.get_u32() as u64, inner_map) {
+                                Some(thing) => println!("Level {} overwritten by \"{}\"", managed_var.get_u32(), format!("{:?}", thing)),
+                                None => {}
+                            };
+                        },
+                        Err(e) => {
+                            println!("Couldn't get level value: {}", e.message());
                         }
                     }
                 },
                 EvtPublisherMetadataTasks => {
                     match get_property(&property_array_handle, n, EvtPublisherMetadataTaskName) {
                         Ok(managed_var) => {
-                            println!("Task Name is: {}", managed_var.get_string().unwrap())
+                            //println!("Task Name is: {}", managed_var.get_string().unwrap());
+                            match inner_map.insert("Task Name".to_string(), managed_var.get_string().unwrap()) {
+                                Some(thing) => println!("Task name '{}' replaced by '{}'", thing, managed_var.get_string().unwrap()),
+                                None => {}
+                            };
                         },
                         Err(e) => {
                             println!("Couldn't get task name: {}", e.message());
-                            continue;
-                        }
-                    }
-                    match get_property(&property_array_handle, n, EvtPublisherMetadataTaskValue) {
-                        Ok(managed_var) => {
-                            println!("Task Value is: {}", managed_var.get_u32())
-                        },
-                        Err(e) => {
-                            println!("Couldn't get task value: {}", e.message());
                             continue;
                         }
                     }
@@ -187,121 +199,160 @@ impl EvtProvider {
                             // Task Guids are EvtVarTypeString, not EvtVarTypeGuid
                             let myguid = GuidWrapper(managed.get_guid().unwrap()).to_string();
                             if myguid != "00000000-0000-0000-0000-000000000000" {
-                                println!("Task GUID is: {}", myguid)
+                                //println!("Task GUID is: {}", myguid);
+                                match inner_map.insert("Task GUID".to_string(), myguid.clone()) {
+                                    Some(thing) => println!("Task GUID '{}' replaced by '{}'", thing, myguid),
+                                    None => {}
+                                };
                             }
                         },
                         Err(e) => {
                             println!("Couldn't get task GUID: {}", e.message());
-                            continue;
                         }
                     }
                     match get_property(&property_array_handle, n, EvtPublisherMetadataTaskMessageID) {
                         Ok(managed) => {
-                            if managed.get_int32() == -1 { // This might not work
-                                println!("No task message");
-                                continue;
+                            if managed.get_int32() != -1 {
+                                match Self::format_event_message(
+                                    &EVT_HANDLE(0), 
+                                    h_provider, 
+                                    EvtFormatMessageId, 
+                                    Some(&managed.get_u32())
+                                ) {
+                                    Ok(m) => {
+                                        //println!("Task message is: {}", m);
+                                        match inner_map.insert("Task Message".to_string(), m.clone()) {
+                                            Some(thing) => println!("Task Message '{}' replaced by '{}'", thing, m),
+                                            None => {}
+                                        };
+                                    },
+                                    Err(e) => println!("Failed to retrieve message: {}", e.message())
+                                };
                             }
-                            
-                            match Self::format_event_message(
-                                &EVT_HANDLE(0), 
-                                h_provider, 
-                                EvtFormatMessageId, 
-                                Some(&managed.get_u32())
-                            ) {
-                                Ok(m) => println!("Task message is: {}", m),
-                                Err(e) => println!("Failed to retrieve message: {}", e.message())
-                            };
                         },
                         Err(e) => {
                             println!("Couldn't get task message: {}", e.message());
-                            continue;
+                        }
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataTaskValue) {
+                        Ok(managed_var) => {
+                            //println!("Task Value is: {}", managed_var.get_u32());
+                            match property_results.insert(managed_var.get_u32() as u64, inner_map) {
+                                Some(thing) => println!("Task {} overwritten by \"{}\"", managed_var.get_u32(), format!("{:?}", thing)),
+                                None => {}
+                            };
+                        },
+                        Err(e) => {
+                            println!("Couldn't get task value: {}", e.message());
                         }
                     }
                 },
                 EvtPublisherMetadataOpcodes => {
                     match get_property(&property_array_handle, n, EvtPublisherMetadataOpcodeName) {
                         Ok(managed) => {
-                            println!("Opcode Name is: {}", managed.get_string().unwrap())
+                            //println!("Opcode Name is: {}", managed.get_string().unwrap());
+                            match inner_map.insert("Opcode Name".to_string(), managed.get_string().unwrap()) {
+                                Some(thing) => println!("Opcode name '{}' replaced by '{}'", thing, managed.get_string().unwrap()),
+                                None => {}
+                            };
                         },
                         Err(e) => {
                             println!("Couldn't get opcode name: {}", e.message());
-                            continue;
-                        }
-                    }
-                    match get_property(&property_array_handle, n, EvtPublisherMetadataOpcodeValue){
-                        Ok(managed) => {
-                            println!("Opcode Value is: {}", managed.get_u32())
-                        },
-                        Err(e) => {
-                            println!("Couldn't get opcode value: {}", e.message());
-                            continue;
                         }
                     }
                     match get_property(&property_array_handle, n, EvtPublisherMetadataOpcodeMessageID){
                         Ok(managed) => {
-                            if managed.get_int32() == -1 { // This might not work
-                                println!("No opcode message");
-                                continue;
+                            if managed.get_int32() != -1 {
+                                match Self::format_event_message(
+                                    &EVT_HANDLE(0), 
+                                    h_provider, 
+                                    EvtFormatMessageId, 
+                                    Some(&managed.get_u32())
+                                ) {
+                                    Ok(m) => {
+                                        //println!("Opcode message is: {}", m);
+                                        match inner_map.insert("Opcode Message".to_string(), m.clone()) {
+                                            Some(thing) => println!("Opcode Message '{}' replaced by '{}'", thing, m),
+                                            None => {}
+                                        };
+                                    },
+                                    Err(e) => println!("Failed to retrieve message: {}", e.message())
+                                };
                             }
-                            match Self::format_event_message(
-                                &EVT_HANDLE(0), 
-                                h_provider, 
-                                EvtFormatMessageId, 
-                                Some(&managed.get_u32())
-                            ) {
-                                Ok(m) => println!("Opcode message is: {}", m),
-                                Err(e) => println!("Failed to retrieve message: {}", e.message())
-                            };
+                            
                         },
                         Err(e) => {
                             println!("Couldn't get opcode message: {}", e.message())
+                        }
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataOpcodeValue){
+                        Ok(managed_var) => {
+                            //println!("Opcode Value is: {}", managed_var.get_u32());
+                            match property_results.insert(managed_var.get_u32() as u64, inner_map) {
+                                Some(thing) => println!("Opcode {} overwritten by \"{}\"", managed_var.get_u32(), format!("{:?}", thing)),
+                                None => {}
+                            };
+                        },
+                        Err(e) => {
+                            println!("Couldn't get opcode value: {}", e.message());
                         }
                     }
                 },
                 EvtPublisherMetadataKeywords => {
                     match get_property(&property_array_handle, n, EvtPublisherMetadataKeywordName){
                         Ok(managed) => {
-                            println!("Keyword Name is: {}", managed.get_string().unwrap())
+                            //println!("Keyword Name is: {}", managed.get_string().unwrap());
+                            match inner_map.insert("Keyword Name".to_string(), managed.get_string().unwrap()) {
+                                Some(thing) => println!("Keyword name '{}' replaced by '{}'", thing, managed.get_string().unwrap()),
+                                None => {}
+                            };
                         },
                         Err(e) => {
                             println!("Couldn't get keyword name: {}", e.message());
-                            continue;
+                        }
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataKeywordMessageID) {
+                        Ok(managed) => {
+                            if managed.get_int32() == -1 {
+                                match Self::format_event_message(
+                                    &EVT_HANDLE(0), 
+                                    h_provider, 
+                                    EvtFormatMessageId, 
+                                    Some(&managed.get_u32())
+                                ) {
+                                    Ok(m) => {
+                                        //println!("Keyword message is: {}", m);
+                                        match inner_map.insert("Keyword Message".to_string(), m.clone()) {
+                                            Some(thing) => println!("Keyword Message '{}' replaced by '{}'", thing, m),
+                                            None => {}
+                                        };
+                                    },
+                                    Err(e) => println!("Failed to retrieve message: {}", e.message())
+                                };
+                            }
+                        },
+                        Err(e) => {
+                            println!("Couldn't get keyword message: {}", e.message())
                         }
                     }
                     match get_property(&property_array_handle, n, EvtPublisherMetadataKeywordValue) {
-                        Ok(managed) => {
-                            println!("Keyword Value is: {}", managed.get_u64())
+                        Ok(managed_var) => {
+                            //println!("Keyword Value is: {}", managed_var.get_u64());
+                            match property_results.insert(managed_var.get_u64(), inner_map) {
+                                Some(thing) => println!("Keyword {} overwritten by \"{}\"", managed_var.get_u64(), format!("{:?}", thing)),
+                                None => {}
+                            };
                         },
                         Err(e) => {
                             println!("Couldn't get keyword value: {}", e.message());
                             continue;
                         }
                     }
-                    match get_property(&property_array_handle, n, EvtPublisherMetadataKeywordMessageID) {
-                        Ok(managed) => {
-                            if managed.get_int32() == -1 {
-                                println!("No keyword message");
-                                continue;
-                            }
-                            match Self::format_event_message(
-                                &EVT_HANDLE(0), 
-                                h_provider, 
-                                EvtFormatMessageId, 
-                                Some(&managed.get_u32())
-                            ) {
-                                Ok(m) => println!("Keyword message is: {}", m),
-                                Err(e) => println!("Failed to retrieve message: {}", e.message())
-                            };
-                        },
-                        Err(e) => {
-                            println!("Couldn't get keyword message: {}", e.message())
-                        }
-                    }
                 },
                 _ => println!("Incompatible property")
             };
-
         }
+        
         unsafe { EvtClose(property_array_handle) };
         Ok(property_results)
     }
@@ -333,7 +384,7 @@ impl EvtProvider {
                 Ok(managed)=> {
                     // Add channel name to HashSet
                     let name = managed.get_string().unwrap();
-                    println!("    {}", &name);
+                    //println!("    {}", &name);
                     channel_results.insert(name);
                 },
                 Err(e) => {
@@ -370,7 +421,7 @@ impl EvtProvider {
         if !format_status.as_bool() {
             let win_error = Error::from_win32();
             if win_error.code() != ERROR_INSUFFICIENT_BUFFER.into(){
-                println!("Failed to get buffer size for EvtFormatMessage: {}", win_error.message());
+                //println!("Failed to get buffer size for EvtFormatMessage: {}", win_error.message());
                 return Err(win_error);
             }
         }

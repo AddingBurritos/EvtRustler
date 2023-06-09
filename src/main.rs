@@ -253,7 +253,10 @@ fn enumerate_publishers() -> std::result::Result<HashSet<EvtProvider>, Error> {
         match evt_next_publisher_id(&publisher_enum_handle) {
             Ok(provider_name) => {
                 match EvtProvider::new(&provider_name) {
-                    Ok(prv) => results.insert(prv),
+                    Ok(prv) => {
+                        println!("{}", &prv.to_json().unwrap());
+                        results.insert(prv);
+                    },
                     Err(e) => {
                         println!("Couldn't make EvtProvider for {}: {}", &provider_name, e.message());
                         continue;
