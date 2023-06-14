@@ -18,5 +18,6 @@ xmltree = "0.10.3"
 version = "0.48"
 features = [
 	"Win32_System_EventLog",
-	"Win32_Foundation"
+	"Win32_Foundation",
+	"Win32_System_WindowsProgramming"
 ]

@@ -2,10 +2,12 @@ mod winevt;
 mod provider;
 mod events;
 mod managed_variant;
+mod metadata_cache;
 use events::EvtEvent;
 use provider::EvtProvider;
 use winevt::*;
 use managed_variant::*;
+use metadata_cache::*;
 
 use clap::{Arg, Command};
 use std::path::Path;
@@ -30,8 +32,8 @@ use std::fs::File;
 fn main() {
     let mut flags: EVT_QUERY_FLAGS = EvtQueryChannelPath;
     let channels_from_args: HashSet<String> = parse_cmdline_args(&mut flags).unwrap();
-    let providers: HashSet<EvtProvider> = enumerate_publishers().unwrap();
-    let tasks: HashMap<String, HashSet<String>> = divvy_tasks_from_providers(&providers, &channels_from_args);
+    let meta_cache: EvtCache = enumerate_publishers(".\\config.cfg").unwrap();
+    let tasks: HashMap<String, HashSet<String>> = divvy_tasks_from_providers(meta_cache.get_data(), &channels_from_args);
 
     let (output_sender, output_receiver) = channel();
     let (error_sender, error_receiver) = channel();
@@ -137,10 +139,10 @@ fn main() {
     }
 }
 
-fn divvy_tasks_from_providers(providers: &HashSet<EvtProvider>, channels_from_args: &HashSet<String>) -> HashMap<String, HashSet<String>> {
+fn divvy_tasks_from_providers(providers: &HashMap<String, EvtProvider>, channels_from_args: &HashSet<String>) -> HashMap<String, HashSet<String>> {
     let mut tasks: HashMap<String, HashSet<String>> = HashMap::new();
     // Loop through providers
-    for provider in providers {
+    for provider in providers.values() {
         // Loop through channels
         for channel in provider.get_channels() {
             // Add channel to key, provider to HashSet value
@@ -234,7 +236,7 @@ fn parse_cmdline_args(flags: &mut EVT_QUERY_FLAGS) -> std::result::Result<HashSe
     Ok(channel_results)
 }
 
-fn enumerate_publishers() -> std::result::Result<HashSet<EvtProvider>, Error> {
+fn enumerate_publishers(config_path: &str) -> Result<EvtCache> {
     // Make sure to close publisher_enum_handle before you leave this function.
 
     // Check if we were given a set of channels to work with
@@ -246,7 +248,9 @@ fn enumerate_publishers() -> std::result::Result<HashSet<EvtProvider>, Error> {
     // Get provider enumerator
     let publisher_enum_handle = evt_open_publisher_enum().unwrap();
 	
-    let mut results = HashSet::new();
+    //let mut results = HashMap::new();
+
+    let mut config = EvtCache::new(config_path).unwrap();
 
     // Loop through providers
     loop {
@@ -255,7 +259,9 @@ fn enumerate_publishers() -> std::result::Result<HashSet<EvtProvider>, Error> {
                 match EvtProvider::new(&provider_name) {
                     Ok(prv) => {
                         println!("{}", &prv.to_json().unwrap());
-                        results.insert(prv);
+                        //prv.write_to_file("provmeta.txt");
+                        config.add_provider(prv);
+                        //results.insert(provider_name.to_string(), prv);
                     },
                     Err(e) => {
                         println!("Couldn't make EvtProvider for {}: {}", &provider_name, e.message());
@@ -275,7 +281,11 @@ fn enumerate_publishers() -> std::result::Result<HashSet<EvtProvider>, Error> {
     }
     
 	unsafe { EvtClose(publisher_enum_handle) };
-	Ok(results)
+    match config.save() {
+        Ok(()) => (),
+        Err(e) => panic!("Couldn't save provider to file: {}", e.to_string())
+    };
+	Ok(config)
 
 }
 

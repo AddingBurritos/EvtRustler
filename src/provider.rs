@@ -11,11 +11,15 @@ use std::os::windows::ffi::OsStrExt;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 use serde::{Serialize, Deserialize};
+use std::fs::File;
+use std::io::Write;
+use windows::Win32::System::WindowsProgramming::{MAX_COMPUTERNAME_LENGTH, GetComputerNameW};
 
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EvtProvider {
     name: String,
+    hostname: String,
     #[serde(skip)]
     handle: EVT_HANDLE,
     channels: HashSet<String>,
@@ -28,9 +32,6 @@ impl EvtProvider {
     pub fn new(name: &str) -> std::result::Result<Self, Error> {
         let provider_name = name.to_string();
         //println!("{}:", &provider_name);
-        if provider_name.contains("CardSpace 4.0.0.0") {
-            println!("hi");
-        };
         let h_provider = match Self::open_handle(name) {
             Ok(handle) => handle,
             Err(e) => return Err(e)
@@ -78,6 +79,7 @@ impl EvtProvider {
         };
         Ok(Self {
             name: provider_name,
+            hostname: Self::get_hostname(),
             handle: h_provider,
             channels: provider_channels,
             levels: levels,
@@ -95,6 +97,33 @@ impl EvtProvider {
         &self.name
     }
 
+    pub fn get_levels(&self) -> &HashMap<u64, HashMap<String, String>> {
+        &self.levels
+    }
+
+    pub fn get_tasks(&self) -> &HashMap<u64, HashMap<String, String>> {
+        &self.tasks
+    }
+
+    pub fn get_opcodes(&self) -> &HashMap<u64, HashMap<String, String>> {
+        &self.opcodes
+    }
+
+    pub fn get_keywords(&self) -> &HashMap<u64, HashMap<String, String>> {
+        &self.keywords
+    }
+
+    fn get_hostname() -> String {
+        let mut max_len: u32 = MAX_COMPUTERNAME_LENGTH + 1;
+        let mut name_vec: Vec<u16> = vec![0; max_len as usize];
+        let name_pwstr: PWSTR = PWSTR::from_raw(name_vec.as_mut_ptr());
+        if unsafe { GetComputerNameW(name_pwstr, &mut max_len) }.as_bool() {
+            return unsafe { name_pwstr.to_string().unwrap() };
+        } {
+            println!("Could not find hostname! {}", Error::from_win32().message());
+            return "UNKNOWN_HOST".to_string();
+        }
+    }
     fn open_handle(name: &str) -> std::result::Result<EVT_HANDLE, Error> {
         let provider_pcwstr: Vec<u16> = OsString::from(&name).encode_wide().chain(once(0)).collect();
         match evt_open_publisher_metadata(provider_pcwstr, None) {
@@ -105,6 +134,16 @@ impl EvtProvider {
     pub fn to_json(&self) -> serde_json::Result<String> {
         serde_json::to_string(&self)
     }
+    pub fn write_to_file(&self, path: &str) -> std::io::Result<()> {
+        let json = match self.to_json() {
+            Ok(json) => json,
+            Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+        };
+        
+        let mut file = File::create(path)?;
+        file.write_all(json.as_bytes())
+    }
+
     fn get_metadata_property(h_provider: &EVT_HANDLE, property_flag: EVT_PUBLISHER_METADATA_PROPERTY_ID) -> Result<HashMap<u64, HashMap<String, String>>> {
         let property_array_handle = match evt_get_publisher_metadata_property(h_provider, property_flag) {
             Ok(handle) => handle,
@@ -313,7 +352,7 @@ impl EvtProvider {
                     }
                     match get_property(&property_array_handle, n, EvtPublisherMetadataKeywordMessageID) {
                         Ok(managed) => {
-                            if managed.get_int32() == -1 {
+                            if managed.get_int32() != -1 {
                                 match Self::format_event_message(
                                     &EVT_HANDLE(0), 
                                     h_provider, 
