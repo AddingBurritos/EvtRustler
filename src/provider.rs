@@ -1,6 +1,6 @@
 use crate::managed_variant::ManagedEvtVariant;
 use crate::winevt::*;
-
+use crate::event_meta::*;
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use std::collections::{HashSet,HashMap};
@@ -27,6 +27,7 @@ pub struct EvtProvider {
     tasks: HashMap<u64, HashMap<String, String>>,
     opcodes: HashMap<u64, HashMap<String, String>>,
     keywords: HashMap<u64, HashMap<String, String>>,
+    events: Vec<EvtEventMetadata>,
 }
 impl EvtProvider {
     pub fn new(name: &str) -> std::result::Result<Self, Error> {
@@ -75,6 +76,13 @@ impl EvtProvider {
                 HashMap::new()
             }
         };
+        let events = match Self::enumerate_events(&h_provider) {
+            Ok(results) => results,
+            Err(e) => {
+                println!("Couldn't get event metadata for provider {}: {}", &provider_name, e.message());
+                vec![]
+            }
+        };
         Ok(Self {
             name: provider_name,
             hostname: Self::get_hostname(),
@@ -83,7 +91,8 @@ impl EvtProvider {
             levels: levels,
             tasks: tasks,
             opcodes: opcodes,
-            keywords: keywords
+            keywords: keywords,
+            events: events,
         })
     }
 
@@ -517,6 +526,41 @@ impl EvtProvider {
             Err(win_error)
         }
 
+    }
+
+    fn enumerate_events(h_publisher: &EVT_HANDLE) -> Result<Vec<EvtEventMetadata>> {
+        let h_events = match unsafe { EvtOpenEventMetadataEnum(*h_publisher, 0) } {
+            Ok(result) => result,
+            Err(e) => {
+                let win_error = Error::from_win32();
+                println!("Couldn't enumerate events: {}", win_error.message());
+                return Ok(Vec::new());
+            }
+        };
+        let mut events: Vec<EvtEventMetadata> = Vec::new();
+        loop {
+            let h_event = match unsafe { EvtNextEventMetadata(h_events, 0) } {
+                Ok(result) => {
+                    match result.0 {
+                        0 => {
+                            let win_error = Error::from_win32();
+                            if win_error.code() == ERROR_NO_MORE_ITEMS.into() {
+                                break;
+                            }
+                            println!("Skipping event metadata because of null handle: {}", win_error.message());
+                            continue;
+                        },
+                        _ => {} // Handle was filled successfully.
+                    }
+                    result
+                },
+                Err(e) => panic!("Error getting next event metadata: {}", e.message())
+            };
+            
+            let event: EvtEventMetadata = EvtEventMetadata::from_event(&h_event);
+            events.push(event);
+        }
+        Ok(events)
     }
 }
 impl Drop for EvtProvider {

@@ -3,7 +3,7 @@ use windows::Win32::System::EventLog::*;
 use windows::core::*;
 
 use crate::managed_variant::*;
-use crate::provider::GuidWrapper;
+use crate::provider::*;
 
 
 pub fn evt_open_publisher_enum() -> Result<EVT_HANDLE> {
@@ -234,6 +234,8 @@ pub fn evt_get_publisher_metadata_property(h_provider: &EVT_HANDLE, property_id:
     let handle = unsafe {variant.Anonymous.EvtHandleVal};
     Ok(handle)
 }
+
+
 
 pub fn evt_get_object_array_size(h_array: &EVT_HANDLE) -> Result<u32> {
     let mut array_size: u32 = 0;
