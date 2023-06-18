@@ -13,7 +13,6 @@ use crate::metadata_cache::EvtCache;
 
 #[derive(Debug, Clone)]
 pub struct EvtEvent {
-    handle: EVT_HANDLE,
     channel: String,
     provider: String,
     xml: String,
@@ -54,7 +53,6 @@ impl EvtEvent {
         }
         //println!("XML: {}", &xml);
         Ok(Self {
-            handle: *h_event,
             channel: channel,
             provider: provider,
             xml: xml,

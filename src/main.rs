@@ -3,6 +3,7 @@ mod provider;
 mod events;
 mod managed_variant;
 mod metadata_cache;
+mod event_meta;
 use events::EvtEvent;
 use provider::EvtProvider;
 use winevt::*;
