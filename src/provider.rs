@@ -22,7 +22,7 @@ pub struct EvtProvider {
     hostname: String,
     #[serde(skip)]
     handle: EVT_HANDLE,
-    channels: HashSet<String>,
+    channels: HashMap<u64, HashMap<String, String>>,
     levels: HashMap<u64, HashMap<String, String>>,
     tasks: HashMap<u64, HashMap<String, String>>,
     opcodes: HashMap<u64, HashMap<String, String>>,
@@ -36,15 +36,13 @@ impl EvtProvider {
             Ok(handle) => handle,
             Err(e) => return Err(e)
         };
-        //println!("  Channels:");
-        let provider_channels = match Self::enumerate_channels(name, &h_provider) {
-            Ok(pcps) => pcps,
+        let provider_channels = match Self::get_metadata_property(&h_provider, EvtPublisherMetadataChannelReferences) {
+            Ok(results) => results,
             Err(e) => {
                 println!("Couldn't get channels for provider {}: {}", &provider_name, e.message());
-                HashSet::new()
+                HashMap::new()
             }
         };
-
         //println!("  Levels:");
         let levels = match Self::get_metadata_property(&h_provider, EvtPublisherMetadataLevels) {
             Ok(results) => results,
@@ -89,7 +87,7 @@ impl EvtProvider {
         })
     }
 
-    pub fn get_channels(&self) -> &HashSet<String>{
+    pub fn get_channels(&self) -> &HashMap<u64, HashMap<String, String>>{
         &self.channels
     }
 
@@ -167,6 +165,78 @@ impl EvtProvider {
         for n in 0..property_array_size {
             let mut inner_map: HashMap<String, String> = HashMap::new();
             match property_flag {
+                EvtPublisherMetadataChannelReferences => {
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataChannelReferencePath) {
+                        //println!("Channel Name is: {}", managed_var.get_string().unwrap());
+                        Ok(managed_var) => {
+                            match inner_map.insert("Channel Name".to_string(), managed_var.get_string().unwrap()) {
+                                Some(thing) => println!("Channel name '{}' replaced by '{}'", thing, managed_var.get_string().unwrap()),
+                                None => {}
+                            };
+                        },
+                        Err(e) => {
+                            println!("Couldn't get channel name: {}", e.message());
+                        }
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataChannelReferenceMessageID) {
+                        Ok(managed_var) => {
+                            if managed_var.get_int32() != -1 {
+                                match Self::format_event_message(
+                                &EVT_HANDLE(0), 
+                                h_provider, 
+                                EvtFormatMessageId, 
+                                Some(&managed_var.get_u32())
+                                ) {
+                                    Ok(m) => {
+                                        match inner_map.insert("Channel Message".to_string(), m) {
+                                            Some(thing) => println!("Channel Message '{}' replaced by '{}'", thing, managed_var.get_string().unwrap()),
+                                            None => {}
+                                        };
+                                    },
+                                    Err(e) => {
+                                        println!("Failed to retrieve message: {}", e.message());
+                                    }
+                                };
+                            }
+                            
+                        },
+                        Err(e) => println!("Couldn't get channel message: {}", e.message())
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataChannelReferenceIndex) {
+                        Ok(managed_var) => {
+                            match inner_map.insert("Channel Index".to_string(), managed_var.get_u32().to_string()) {
+                                Some(thing) => println!("Channel index '{}' replaced by '{}'", thing, managed_var.get_u32().to_string()),
+                                None => {}
+                            };
+                        },
+                        Err(e) => println!("Couldn't get channel index: {}", e.message())
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataChannelReferenceFlags) {
+                        Ok(managed_var) => {
+                            let mut flag_string = "False".to_string();
+                            if managed_var.get_u32() > 0 {
+                                flag_string = "True".to_string();
+                            }
+                            match inner_map.insert("Channel Imported".to_string(), flag_string.clone()) {
+                                Some(thing) => println!("Channel Imported flag '{}' replaced by '{}'", thing, flag_string),
+                                None => {}
+                            };
+                        }
+                        Err(e) => println!("Couldn't get channel imported flag: {}", e.message())
+                    }
+                    match get_property(&property_array_handle, n, EvtPublisherMetadataChannelReferenceID) {
+                        Ok(managed_var) => {
+                            //println!("Level Value is: {}", managed_var.get_u32());
+                            match property_results.insert(managed_var.get_u32() as u64, inner_map) {
+                                Some(thing) => println!("Channel {} overwritten by \"{}\"", managed_var.get_u32(), format!("{:?}", thing)),
+                                None => {}
+                            };
+                        },
+                        Err(e) => {
+                            println!("Couldn't get channel ID: {}", e.message());
+                        }
+                    }
+                },
                 EvtPublisherMetadataLevels => {
                     match get_property(&property_array_handle, n, EvtPublisherMetadataLevelName) {
                         Ok(managed_var) => {
@@ -395,48 +465,6 @@ impl EvtProvider {
         unsafe { EvtClose(property_array_handle) };
         Ok(property_results)
     }
-    fn enumerate_channels(provider_name: &str, h_provider: &EVT_HANDLE) -> std::result::Result<HashSet<String>, Error> {
-        // Get handle to array of channel names from provider
-        let channels_array_handle = match evt_get_publisher_metadata_property(h_provider, EvtPublisherMetadataChannelReferences) {
-            Ok(handle) => handle,
-            Err(e) => {
-                println!("EvtGetPublisherMetadataProperty Error with provider {}: {}", provider_name, e.message());
-                return Err(e);
-            }
-        };
-        
-        // Get size of channel array
-        let channel_array_size = match evt_get_object_array_size(&channels_array_handle) {
-            Ok(size) => size,
-            Err(e) => {
-                println!("Couldn't determine number of channels in provider {}: {}", provider_name, e.message());
-                return Err(e);
-            }
-        };
-        //println!("{} channels in provider {}.", channel_array_size, provider);
-        let mut channel_results: HashSet<String> = HashSet::new();
-        // Loop through each channel in the array
-        for n in 0..channel_array_size {
-
-            // Get channel name
-            match get_property(&channels_array_handle, n, EvtPublisherMetadataChannelReferencePath) {
-                Ok(managed)=> {
-                    // Add channel name to HashSet
-                    let name = managed.get_string().unwrap();
-                    //println!("    {}", &name);
-                    channel_results.insert(name);
-                },
-                Err(e) => {
-                    println!("Couldn't get channel name from the array of provider {}. Skipping name: {}", provider_name, e.message());
-                    continue;
-                }
-            };
-
-
-
-        }
-        Ok(channel_results)
-    }
 
     fn format_event_message(h_event: &EVT_HANDLE, h_publisher: &EVT_HANDLE, flag: EVT_FORMAT_MESSAGE_FLAGS, message_id: Option<&u32>) -> Result<String> {
         let msg_id: u32 = match message_id {
@@ -531,7 +559,7 @@ impl fmt::Display for GuidWrapper {
 #[cfg(test)]
 mod tests {
     use crate::provider::EvtProvider;
-    use std::collections::HashSet;
+    use std::collections::{HashSet, HashMap};
     #[test]
     fn test_provider_initialization() {
         let provider_name = "Microsoft-Windows-Security-Auditing";  // Make sure this provider exists in your test environment
@@ -544,26 +572,22 @@ mod tests {
 
         // Check that the provider name was correctly set
         assert_eq!(provider.name, provider_name);
-
-        // Check that the handle is valid, if possible
-
-        // Check that the correct channels were retrieved
-        // This will depend on what channels your test provider has
     }
 
     #[test]
     fn test_provider_channel_initialization() {
         let provider_name = "Microsoft-Windows-Security-Auditing";  // Make sure this provider exists in your test environment
-        let mut expected_channels: HashSet<String> = HashSet::new();
-        expected_channels.insert("Security".to_string());
+        let mut expected_channels: HashMap<String, String> = HashMap::new();
+        expected_channels.insert("Channel Name".to_string(), "Security".to_string());
+        expected_channels.insert("Channel Message".to_string(), "Security".to_string());
+        expected_channels.insert("Channel Flag".to_string(), "Channel is imported".to_string());
+        expected_channels.insert("Channel Index".to_string(), "0".to_string());
+        let mut outer = HashMap::new();
+        outer.insert(10, expected_channels);
         let provider = EvtProvider::new(provider_name).unwrap();
-        // Check that the provider name was correctly set
-        assert_eq!(provider.get_channels(), &expected_channels);
+        // Check that the channel data was correctly pulled
+        assert_eq!(provider.get_channels(), &outer);
 
-        // Check that the handle is valid, if possible
-
-        // Check that the correct channels were retrieved
-        // This will depend on what channels your test provider has
     }
 
     // More tests here...

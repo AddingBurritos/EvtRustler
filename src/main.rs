@@ -146,7 +146,7 @@ fn divvy_tasks_from_providers(providers: &HashMap<String, EvtProvider>, channels
         // Loop through channels
         for channel in provider.get_channels() {
             // Add channel to key, provider to HashSet value
-            tasks.entry(channel.to_string()).or_insert_with(HashSet::new).insert(provider.get_name().to_string());
+            tasks.entry(channel.1.get("Channel Name").unwrap().to_string()).or_insert_with(HashSet::new).insert(provider.get_name().to_string());
         }
     }
 
