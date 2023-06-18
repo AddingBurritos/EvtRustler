@@ -12,7 +12,7 @@ pub struct EvtEventMetadata {
 }
 impl EvtEventMetadata {
     pub fn from_event(h_event: &EVT_HANDLE) -> Self {
-        let id = 
+        //let id = 
     }
 
     fn evt_get_event_metadata_property(h_provider: &EVT_HANDLE, property_id: EVT_EVENT_METADATA_PROPERTY_ID, provider: &EvtProvider) -> Result<EVT_HANDLE> {
@@ -63,7 +63,9 @@ impl EvtEventMetadata {
         let result = match property_id {
             EventMetadataEventID => unsafe {variant.Anonymous.UInt32Val}, // u32
             EventMetadataEventVersion => unsafe {variant.Anonymous.UInt32Val}, // u32
-            EventMetadataEventChannel => 
+            EventMetadataEventChannel => {
+
+            },
             EventMetadataEventTemplate => unsafe {variant.Anonymous.StringVal.to_string().unwrap()}, // String
             EventMetadataEventKeyword => {
                 let keywords: u64 = unsafe {variant.Anonymous.UInt64Val};

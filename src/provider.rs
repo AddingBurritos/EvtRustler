@@ -509,7 +509,7 @@ impl EvtProvider {
                 return Ok(Vec::new());
             }
         };
-        let events: Vec<EvtEventMetadata> = Vec::new();
+        let mut events: Vec<EvtEventMetadata> = Vec::new();
         loop {
             let h_event = match unsafe { EvtNextEventMetadata(h_events, 0) } {
                 Ok(result) => {
@@ -530,6 +530,7 @@ impl EvtProvider {
             };
             
             let event: EvtEventMetadata = EvtEventMetadata::from_event(&h_event);
+            events.push(event);
         }
         Ok(events)
     }
