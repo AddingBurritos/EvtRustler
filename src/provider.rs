@@ -27,7 +27,6 @@ pub struct EvtProvider {
     tasks: HashMap<u64, HashMap<String, String>>,
     opcodes: HashMap<u64, HashMap<String, String>>,
     keywords: HashMap<u64, HashMap<String, String>>,
-    #[serde(skip)]
     events: Vec<EvtEventMetadata>,
 }
 impl EvtProvider {

@@ -61,7 +61,10 @@ impl EvtEventMetadata {
             return Err(win_error);
         }
         let result = match property_id {
-            EventMetadataEventTemplate => unsafe {variant.Anonymous.StringVal.to_string().unwrap()},
+            EventMetadataEventID => unsafe {variant.Anonymous.UInt32Val}, // u32
+            EventMetadataEventVersion => unsafe {variant.Anonymous.UInt32Val}, // u32
+            EventMetadataEventChannel => 
+            EventMetadataEventTemplate => unsafe {variant.Anonymous.StringVal.to_string().unwrap()}, // String
             EventMetadataEventKeyword => {
                 let keywords: u64 = unsafe {variant.Anonymous.UInt64Val};
                 if (keywords & 0x00FFFFFFFFFFFFFF) > 0 {
@@ -74,7 +77,7 @@ impl EvtEventMetadata {
                             }
                         }
                     }
-                    return names;
+                    names // Vec<&String>
                 }
             },
             _ => unsafe {variant.Anonymous.UInt32Val}
