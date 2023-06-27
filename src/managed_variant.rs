@@ -5,10 +5,17 @@ use windows::Win32::System::EventLog::*;
 #[derive(Debug)]
 pub enum VariantBuffer {
     StringVal(String),
+    SByteVal(i8),
     ByteVal(u8),
+    Int16Val(i16),
+    UInt16Val(u16),
     Int32Val(i32),
     UInt32Val(u32),
+    Int64Val(i64),
     UInt64Val(u64),
+    SingleVal(f32),
+    DoubleVal(f64),
+    BooleanVal(bool),
     GuidVal(GUID),
     EvtHandleVal(EVT_HANDLE),
     // Other types omitted due to complexity, fill in as necessary
@@ -78,7 +85,7 @@ impl ManagedEvtVariant {
         self.variant.Type = new_variant.Type;
         self.variant.Count = new_variant.Count;
     }
-    pub fn from_variant(source_variant: EVT_VARIANT) -> Self {
+    pub fn from_variant(source_variant: &EVT_VARIANT) -> Self {
         let new_variant = match source_variant.Type {
             1 => panic!("You shouldn't be adding a string val to the ManagedEvtVariant like this. Use from_string."),
             4 => ManagedEvtVariant {
@@ -194,6 +201,7 @@ impl ManagedEvtVariant {
             VariantBuffer::UInt64Val(val) => Some(VariantBuffer::UInt64Val(*val)),
             VariantBuffer::GuidVal(buf) => Some(VariantBuffer::GuidVal(buf.clone())),
             VariantBuffer::EvtHandleVal(buf) => Some(VariantBuffer::EvtHandleVal(buf.clone())),
+            _ => None
         }
     }
     pub fn get_string(&self) -> Option<String> {

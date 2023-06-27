@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use crate::provider::EvtProvider;
 use std::fs::File;
 use std::io::BufReader;
+use std::io::Write;
 
 pub struct EvtCache {
     path: String,
@@ -22,7 +23,8 @@ impl EvtCache {
             }
             Err(ref error) if error.kind() == std::io::ErrorKind::NotFound => {
                 // Create a new file if it does not exist
-                File::create(path)?;
+                let mut my_config = File::create(path)?;
+                my_config.write_all(b"{}")?;
                 data = HashMap::new(); // Initialize with an empty data set
             }
             Err(error) => return Err(error),
